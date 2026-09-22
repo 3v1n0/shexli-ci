@@ -21,8 +21,9 @@
 
 The baseline lists the findings that are known and accepted, so that CI only
 fails when a *new* finding appears (a regression). Findings that were in the
-baseline but are no longer reported are just reported as resolved, so the
-baseline can be pruned.
+baseline but are no longer reported are reported as resolved, so the baseline
+can be pruned; depending on ``--on-resolved`` they are warned about (the
+default) or make the check fail.
 
 A finding is identified by its rule id plus its evidence, using the file base
 name (zip/input prefix stripped) and the evidence snippets. This is stable
@@ -462,7 +463,7 @@ def _annotate_malformed(path, line, body):
 
 def _write_summary(report, new_keys, resolved_keys, accepted_keys, indexed,
                    has_baseline=True, blocking=None, ignored=None,
-                   acknowledged=None, malformed=()):
+                   acknowledged=None, malformed=(), on_resolved="warn"):
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
@@ -488,6 +489,13 @@ def _write_summary(report, new_keys, resolved_keys, accepted_keys, indexed,
                      f"{len(ignored)} new finding(s) acknowledged inline")
     else:
         lines.append("✅ No new findings")
+    if resolved_keys:
+        if on_resolved == "fail":
+            lines.append(f"❌ **{len(resolved_keys)} baseline entry(ies) "
+                         f"no longer apply**")
+        else:
+            lines.append(f"⚠️ {len(resolved_keys)} baseline entry(ies) "
+                         f"can be pruned")
     lines.append("")
 
     def finding_rows(keys):
@@ -535,7 +543,10 @@ def _write_summary(report, new_keys, resolved_keys, accepted_keys, indexed,
         lines.append("</details>")
         lines.append("")
     if resolved_keys:
-        lines.append("### Resolved (baseline can be pruned)")
+        if on_resolved == "fail":
+            lines.append("### Resolved (baseline entries no longer apply)")
+        else:
+            lines.append("### Resolved (baseline can be pruned)")
         lines.append("")
         lines.append(", ".join(f"`{k[0]}` ({', '.join(k[1])})"
                               for k in sorted(resolved_keys)))
@@ -569,6 +580,11 @@ def main():
                         help="extension directory or ZIP archive that was "
                              "analyzed, used to read the inline shexli-ci "
                              "directives (defaults to the report input_path)")
+    parser.add_argument("--on-resolved", choices=("warn", "fail"),
+                        default="warn",
+                        help="what to do when a baseline entry no longer "
+                             "applies: 'warn' reports it without failing, "
+                             "'fail' makes the check fail (default: %(default)s)")
     args = parser.parse_args()
 
     with open(args.report) as f:
@@ -610,8 +626,10 @@ def main():
         else:
             blocking.add(key)
 
+    resolved_level = "warning" if args.on_resolved == "warn" else "error"
     for key in sorted(resolved):
-        print(f"resolved (baseline can be pruned): {_describe(key)}")
+        print(f"{resolved_level}: baseline entry no longer applies "
+              f"(can be pruned): {_describe(key)}")
 
     if blocking:
         label = ("New findings not present in the baseline"
@@ -650,13 +668,17 @@ def main():
 
     _write_summary(report, new, resolved, accepted, indexed,
                    has_baseline=has_baseline, blocking=blocking, ignored=ignored,
-                   acknowledged=acknowledged, malformed=malformed)
+                   acknowledged=acknowledged, malformed=malformed,
+                   on_resolved=args.on_resolved)
 
     if malformed:
         print("\nERROR: malformed shexli-ci directive(s).")
         return 1
     if blocking and not args.allow_new:
         print("\nERROR: shexli reported new findings.")
+        return 1
+    if resolved and args.on_resolved == "fail":
+        print("\nERROR: baseline entries no longer apply.")
         return 1
 
     return 0

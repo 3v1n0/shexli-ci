@@ -302,6 +302,30 @@ class CheckCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.count("::warning title=EGO-L-001"), 1)
 
+    def test_resolved_warns_by_default(self):
+        with open(self.report_path, "w") as f:
+            json.dump(report([], self.dir), f)
+        baseline = os.path.join(self.dir, "baseline.json")
+        with open(baseline, "w") as f:
+            json.dump({"spec_version": "x", "known": [
+                {"rule_id": "EGO-X-999", "paths": ["gone.js"],
+                 "snippets": ["old"]}]}, f)
+        result = self.run_check(baseline)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("warning: baseline entry no longer applies", result.stdout)
+
+    def test_resolved_can_fail(self):
+        with open(self.report_path, "w") as f:
+            json.dump(report([], self.dir), f)
+        baseline = os.path.join(self.dir, "baseline.json")
+        with open(baseline, "w") as f:
+            json.dump({"spec_version": "x", "known": [
+                {"rule_id": "EGO-X-999", "paths": ["gone.js"],
+                 "snippets": ["old"]}]}, f)
+        result = self.run_check(baseline, "--on-resolved", "fail")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ERROR: baseline entries no longer apply", result.stdout)
+
     def test_zip_source_is_supported(self):
         archive = os.path.join(self.dir, "extension.zip")
         with zipfile.ZipFile(archive, "w") as zf:

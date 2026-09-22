@@ -32,6 +32,8 @@
 #   -i, --install         Install/upgrade shexli before running.
 #   -s, --source SPEC     pip-installable shexli source (with --install).
 #       --allow-new       Do not fail on new findings, just report them.
+#       --on-resolved M   Warn (default) or fail when a baseline entry no
+#                         longer applies. M is "warn" or "fail".
 #   -h, --help            Show this help.
 #
 # PATH defaults to "." and may be an extension directory or a ZIP archive.
@@ -46,9 +48,10 @@ FORMAT='json'
 REPORT='shexli-report.json'
 INSTALL=0
 ALLOW_NEW=''
+ON_RESOLVED='warn'
 EXCLUDES=()
 
-usage() { sed -n '24,37p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '24,39p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -59,6 +62,7 @@ while [ $# -gt 0 ]; do
     -i|--install) INSTALL=1; shift ;;
     -s|--source) SOURCE="$2"; shift 2 ;;
     --allow-new) ALLOW_NEW='--allow-new'; shift ;;
+    --on-resolved) ON_RESOLVED="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) PATH_ARG="$1"; shift ;;
@@ -89,7 +93,9 @@ echo "Analyzing: $PATH_ARG"
 shexli "${args[@]}" "$PATH_ARG" > "$REPORT" || true
 
 if [ -n "$BASELINE" ]; then
-  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" "$REPORT" "$BASELINE"
+  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" \
+    --on-resolved "$ON_RESOLVED" "$REPORT" "$BASELINE"
 else
-  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" "$REPORT"
+  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" \
+    --on-resolved "$ON_RESOLVED" "$REPORT"
 fi

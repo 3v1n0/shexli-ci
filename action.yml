@@ -20,6 +20,14 @@ inputs:
       not listed there cause the action to fail. If empty, every finding fails.
     required: false
     default: ''
+  on-resolved:
+    description: >-
+      What to do when a baseline entry no longer applies (it is no longer
+      reported): 'warn' (default) reports it in the logs and job summary
+      without failing, 'fail' makes the action fail so the baseline can be
+      updated.
+    required: false
+    default: 'warn'
   exclude:
     description: >-
       Newline-separated glob patterns of files/directories to skip. Repeatable
@@ -94,11 +102,12 @@ runs:
         SHEXLI_REPORT: ${{ inputs.report-path }}
         SHEXLI_BASELINE: ${{ inputs.baseline }}
         SHEXLI_PATH: ${{ inputs.path }}
+        SHEXLI_ON_RESOLVED: ${{ inputs.on-resolved }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
         if [ -n "$SHEXLI_BASELINE" ]; then
-          python3 "$ACTION_PATH/check_shexli.py" --source "$SHEXLI_PATH" "$SHEXLI_REPORT" "$SHEXLI_BASELINE"
+          python3 "$ACTION_PATH/check_shexli.py" --source "$SHEXLI_PATH" --on-resolved "$SHEXLI_ON_RESOLVED" "$SHEXLI_REPORT" "$SHEXLI_BASELINE"
         else
-          python3 "$ACTION_PATH/check_shexli.py" --source "$SHEXLI_PATH" "$SHEXLI_REPORT"
+          python3 "$ACTION_PATH/check_shexli.py" --source "$SHEXLI_PATH" --on-resolved "$SHEXLI_ON_RESOLVED" "$SHEXLI_REPORT"
         fi

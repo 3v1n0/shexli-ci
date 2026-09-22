@@ -79,7 +79,8 @@ The same logic is available as `run.sh`, without GitHub Actions:
 ```
 
 `run.sh --help` documents all the options (`--baseline`, `--exclude`,
-`--format`, `--report`, `--install`, `--source`, `--allow-new`).
+`--format`, `--report`, `--install`, `--source`, `--allow-new`,
+`--on-resolved`).
 
 ## Inputs
 
@@ -87,6 +88,7 @@ The same logic is available as `run.sh`, without GitHub Actions:
 | ---------------- | ---------------------------------------------------- | -------------------------------------------------------- |
 | `path`           | `.`                                                  | Extension directory or ZIP archive to analyze.            |
 | `baseline`       | *(empty)*                                            | Baseline JSON of known findings. Empty means strict mode.|
+| `on-resolved`    | `warn`                                               | `warn` or `fail` when a baseline entry no longer applies. |
 | `exclude`        | *(empty)*                                            | Newline-separated glob patterns of files to skip.        |
 | `shexli-source`  | `git+https://gitlab.gnome.org/3v1n0/extensions-web.git@51-improvements#subdirectory=shexli` | pip-installable source of shexli. |
 | `python-version` | `3.12`                                               | Python version to run shexli with.                       |
@@ -178,7 +180,8 @@ JavaScript-style sources (`.js`, `.mjs`, `.ts`, `.css`, …).
 
 - Findings **not** present in the baseline make the action fail.
 - Baseline entries that no longer appear are reported as *resolved* (so the
-  baseline can be pruned), but do not fail.
+  baseline can be pruned). By default this is a warning; set `on-resolved:
+  fail` to make the check fail instead, forcing the baseline to be updated.
 - Occurrences acknowledged with an inline `shexli-ci:` directive do not fail,
   but are still reported (as warnings).
 - A malformed `shexli-ci:` directive (missing rationale) fails the check.
