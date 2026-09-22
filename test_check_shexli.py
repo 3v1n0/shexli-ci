@@ -326,6 +326,74 @@ class CheckCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("ERROR: baseline entries no longer apply", result.stdout)
 
+    def test_relative_directory_source_resolves_directives(self):
+        sub = os.path.join(self.dir, "ext")
+        os.makedirs(sub)
+        with open(os.path.join(sub, "extension.js"), "w") as f:
+            f.write("// shexli-ci: EGO-I-004 - needed\nimports._gi;\n")
+        payload = report(
+            [finding("EGO-I-004", os.path.join("ext", "extension.js"), [2])],
+            "ext")
+        with open(self.report_path, "w") as f:
+            json.dump(payload, f)
+        result = subprocess.run(
+            [sys.executable, CHECK, "--source", "ext",
+             os.path.basename(self.report_path)],
+            capture_output=True, text=True, cwd=self.dir,
+            env={k: v for k, v in os.environ.items()
+                 if k != "GITHUB_ACTIONS"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("acknowledged: needed", result.stdout)
+
+    def test_summary_file(self):
+        self.write("// shexli-ci: EGO-I-004 - needed\nimports._gi;\n",
+                   [finding("EGO-I-004", self.source, [2])])
+        summary = os.path.join(self.dir, "summary.md")
+        result = self.run_check("--summary", summary)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with open(summary) as f:
+            content = f.read()
+        self.assertIn("## shexli", content)
+        self.assertIn("Acknowledged inline", content)
+
+    def test_codequality_report(self):
+        with open(os.path.join(self.dir, "src.js"), "w") as f:
+            f.write("// shexli-ci: EGO-I-004 - needed\n"
+                    "imports._gi;\nimports._gi;\n")
+        payload = report([finding("EGO-I-004", "src.js", [2, 3])], ".")
+        with open(self.report_path, "w") as f:
+            json.dump(payload, f)
+        result = subprocess.run(
+            [sys.executable, CHECK, "--source", ".",
+             "--codequality", "codequality.json",
+             os.path.basename(self.report_path)],
+            capture_output=True, text=True, cwd=self.dir,
+            env={k: v for k, v in os.environ.items()
+                 if k != "GITHUB_ACTIONS"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        with open(os.path.join(self.dir, "codequality.json")) as f:
+            entries = json.load(f)
+        by_line = {e["location"]["lines"]["begin"]: e for e in entries}
+        self.assertEqual(by_line[2]["severity"], "info")
+        self.assertIn("acknowledged: needed", by_line[2]["description"])
+        self.assertEqual(by_line[3]["severity"], "minor")
+        self.assertEqual(by_line[3]["check_name"], "EGO-I-004")
+        self.assertEqual(by_line[3]["location"]["path"], "src.js")
+        self.assertTrue(by_line[3]["fingerprint"])
+
+    def test_gitlab_section_output(self):
+        self.write("// shexli-ci: EGO-I-004 - needed\nimports._gi;\n",
+                   [finding("EGO-I-004", self.source, [2])])
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_ACTIONS"}
+        env["GITLAB_CI"] = "true"
+        result = subprocess.run(
+            [sys.executable, CHECK, "--source", self.dir, self.report_path],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("section_start:", result.stdout)
+        self.assertIn("section_end:", result.stdout)
+        self.assertNotIn("::group::", result.stdout)
+
     def test_zip_source_is_supported(self):
         archive = os.path.join(self.dir, "extension.zip")
         with zipfile.ZipFile(archive, "w") as zf:

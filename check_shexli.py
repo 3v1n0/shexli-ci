@@ -53,13 +53,21 @@ When running inside GitHub Actions (GITHUB_ACTIONS is set), new findings are
 also emitted as workflow annotations (errors on their source line, warnings
 for the acknowledged occurrences) and a job summary is written to
 GITHUB_STEP_SUMMARY.
+
+When running inside GitLab CI (GITLAB_CI is set), the log uses collapsible
+sections and, with ``--codequality``, a Code Quality report can be written for
+the merge request. ``--summary`` writes the markdown summary to an arbitrary
+file, which is also how the GitLab job exposes it as an artifact.
 """
 
 import argparse
+import hashlib
+import itertools
 import json
 import os
 import re
 import sys
+import time
 import zipfile
 
 
@@ -70,6 +78,26 @@ _DIRECTIVE = re.compile(r"^(?P<rules>.+?)\s+-\s+(?P<rationale>\S.*)$", re.DOTALL
 _DIRECTIVE_EXTENSIONS = frozenset({
     ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass",
 })
+_SECTION_IDS = itertools.count()
+# Code Quality severities, from most to least severe.
+_CODEQUALITY_SEVERITY = {"error": "major", "warning": "minor"}
+
+
+def _ci_provider():
+    """Return 'github', 'gitlab' or None depending on the CI environment."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return "github"
+    if os.environ.get("GITLAB_CI") == "true":
+        return "gitlab"
+    return None
+
+
+def _gitlab_section_start(name, title):
+    print(f"\x1b[0Ksection_start:{int(time.time())}:{name}\r\x1b[0K{title}")
+
+
+def _gitlab_section_end(name):
+    print(f"\x1b[0Ksection_end:{int(time.time())}:{name}\r\x1b[0K")
 
 
 def _basename(path):
@@ -271,30 +299,43 @@ class _Source:
         if source and os.path.isfile(source) and zipfile.is_zipfile(source):
             self._zip = zipfile.ZipFile(source)
 
-    def _member(self, display_path):
+    def _candidates(self, display_path):
         if self._zip is not None:
-            return display_path.split(":", 1)[1] if ":" in display_path else display_path
-        if os.path.isabs(display_path) and self.source:
+            member = display_path.split(":", 1)[1] if ":" in display_path else display_path
+            return [member]
+        candidates = [display_path]
+        if self.source:
+            # The evidence path may already be relative to the current
+            # directory (the usual case), or include the analyzed path prefix,
+            # or be package-relative while the analysis ran elsewhere.
+            candidates.append(os.path.join(self.source, display_path))
             try:
-                return os.path.relpath(display_path, os.path.abspath(self.source))
+                relative = os.path.relpath(display_path, self.source)
             except ValueError:
-                return display_path
-        return display_path
+                pass
+            else:
+                candidates.append(os.path.join(self.source, relative))
+                candidates.append(relative)
+        return candidates
 
     def read(self, display_path):
         if display_path in self._cache:
             return self._cache[display_path]
         text = None
-        try:
-            if self._zip is not None:
-                with self._zip.open(self._member(display_path)) as handle:
+        if self._zip is not None:
+            try:
+                with self._zip.open(self._candidates(display_path)[0]) as handle:
                     text = handle.read().decode("utf-8", "replace")
-            else:
-                path = os.path.join(self.source, self._member(display_path))
-                with open(path, encoding="utf-8", errors="replace") as handle:
-                    text = handle.read()
-        except (OSError, KeyError, zipfile.BadZipFile):
-            text = None
+            except (KeyError, OSError, zipfile.BadZipFile):
+                text = None
+        else:
+            for candidate in self._candidates(display_path):
+                try:
+                    with open(candidate, encoding="utf-8", errors="replace") as handle:
+                        text = handle.read()
+                    break
+                except OSError:
+                    continue
         self._cache[display_path] = text
         return text
 
@@ -385,15 +426,15 @@ def _unique_occurrences(finding, acknowledged=None):
 
 
 def _print_finding(finding, key, indent="  - ", acknowledged=None):
-    """Print a finding, one group per occurrence when on GitHub Actions."""
+    """Print a finding, one collapsible group per occurrence in CI."""
     acknowledged = acknowledged or {}
     rule_id = finding.get("rule_id", key[0])
     severity = finding.get("severity", "warning")
     message = _oneline(finding.get("message", ""))
-    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    provider = _ci_provider()
     occurrences = list(_unique_occurrences(finding, acknowledged)) or [({}, None)]
 
-    if not in_actions:
+    if provider is None:
         print(f"{indent}{rule_id} [{severity}]: {message}")
         for ev, rationale in occurrences:
             note = f"  [acknowledged: {rationale}]" if rationale else ""
@@ -402,17 +443,24 @@ def _print_finding(finding, key, indent="  - ", acknowledged=None):
 
     # Each occurrence gets its own collapsible group with its details. The
     # group already keeps the log tidy, so the snippet is shown as it is.
-    for ev, rationale in occurrences:
+    for index, (ev, rationale) in enumerate(occurrences):
         label = f"{rule_id} [{severity}]"
         if rationale:
             label += " (acknowledged inline)"
         note = f" — rationale: {rationale}" if rationale else ""
-        print(f"::group::{label}: {message}{note}")
+        section = f"shexli-{next(_SECTION_IDS)}"
+        if provider == "github":
+            print(f"::group::{label}: {message}{note}")
+        else:
+            _gitlab_section_start(section, f"{label}: {message}{note}")
         print(f"    {_evidence_location(ev)}")
         snippet = ev.get("snippet", "").rstrip()
         if snippet:
             print("\n".join(f"    {line}" for line in snippet.splitlines()))
-        print("::endgroup::")
+        if provider == "github":
+            print("::endgroup::")
+        else:
+            _gitlab_section_end(section)
 
 
 def _annotate(finding, acknowledged=None):
@@ -461,10 +509,80 @@ def _annotate_malformed(path, line, body):
     print(f"::error {','.join(props)}::{message}")
 
 
+def _codequality_path(path):
+    """Return a repository-relative path for a Code Quality entry, if any."""
+    if os.path.isabs(path):
+        try:
+            path = os.path.relpath(path, os.getcwd())
+        except ValueError:
+            return None
+    while path.startswith("./"):
+        path = path[2:]
+    if not path or path == "." or path.startswith("../"):
+        return None
+    return path
+
+
+def _codequality_fingerprint(rule_id, path, snippet, line):
+    basis = f"{rule_id}\0{path}\0{line}\0{snippet}"
+    return hashlib.sha1(basis.encode("utf-8", "replace")).hexdigest()
+
+
+def _write_codequality(report_path, new_keys, indexed, acknowledged_by_key=None):
+    """Write a GitLab Code Quality report for the new findings.
+
+    Only findings that are not in the baseline are reported, matching the
+    annotations; acknowledged occurrences are kept, with an ``info`` severity
+    and their rationale, so they stay visible in the merge request without
+    failing it.
+    """
+    acknowledged_by_key = acknowledged_by_key or {}
+    entries = []
+    seen = set()
+    for key in sorted(new_keys):
+        finding = indexed[key]
+        acknowledged = acknowledged_by_key.get(key) or {}
+        rule_id = finding.get("rule_id", key[0])
+        severity = finding.get("severity", "warning")
+        message = _oneline(finding.get("message", ""))
+        for ev, rationale in _unique_occurrences(finding, acknowledged):
+            raw_path = ev.get("path")
+            if not raw_path:
+                continue
+            path = _codequality_path(_display_path(raw_path))
+            if not path:
+                continue
+            line = ev.get("line") or 1
+            fingerprint = _codequality_fingerprint(
+                rule_id, path, ev.get("snippet") or "", line)
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            if rationale:
+                description = f"{message} (acknowledged: {rationale})"
+                level = "info"
+            else:
+                description = message
+                level = _CODEQUALITY_SEVERITY.get(severity, "minor")
+            entries.append({
+                "description": description,
+                "check_name": rule_id,
+                "fingerprint": fingerprint,
+                "severity": level,
+                "location": {"path": path, "lines": {"begin": line}},
+            })
+
+    with open(report_path, "w") as f:
+        json.dump(entries, f, indent=2)
+        f.write("\n")
+    return entries
+
+
 def _write_summary(report, new_keys, resolved_keys, accepted_keys, indexed,
                    has_baseline=True, blocking=None, ignored=None,
-                   acknowledged=None, malformed=(), on_resolved="warn"):
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+                   acknowledged=None, malformed=(), on_resolved="warn",
+                   path=None):
+    summary_path = path or os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
 
@@ -585,6 +703,12 @@ def main():
                         help="what to do when a baseline entry no longer "
                              "applies: 'warn' reports it without failing, "
                              "'fail' makes the check fail (default: %(default)s)")
+    parser.add_argument("--summary",
+                        help="write the markdown job summary to this file "
+                             "(defaults to GITHUB_STEP_SUMMARY when set)")
+    parser.add_argument("--codequality",
+                        help="write a GitLab Code Quality report for the new "
+                             "findings to this file")
     args = parser.parse_args()
 
     with open(args.report) as f:
@@ -595,8 +719,8 @@ def main():
     summary = report.get("summary", {})
     source = args.source or summary.get("input_path")
 
-    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
-    annotate = in_actions and not args.no_annotate
+    provider = _ci_provider()
+    annotate = provider == "github" and not args.no_annotate
 
     directives, malformed = _collect_directives(
         source, [indexed[key] for key in sorted(current)])
@@ -669,7 +793,12 @@ def main():
     _write_summary(report, new, resolved, accepted, indexed,
                    has_baseline=has_baseline, blocking=blocking, ignored=ignored,
                    acknowledged=acknowledged, malformed=malformed,
-                   on_resolved=args.on_resolved)
+                   on_resolved=args.on_resolved, path=args.summary)
+
+    if args.codequality:
+        entries = _write_codequality(args.codequality, new, indexed, acknowledged)
+        print(f"\nWrote Code Quality report: {args.codequality} "
+              f"({len(entries)} issue(s))")
 
     if malformed:
         print("\nERROR: malformed shexli-ci directive(s).")

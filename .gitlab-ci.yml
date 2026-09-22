@@ -1,0 +1,40 @@
+# GitLab CI for this repository.
+#
+# On GitHub, .github/workflows/tests.yml runs the same unit tests. This
+# pipeline additionally exercises and releases the shexli CI/CD component when
+# the project is mirrored to a GitLab instance.
+
+include:
+  # Include the component from the current commit and run it on a small fixture
+  # extension. The fixture acknowledges its only finding inline, so the
+  # generated job must succeed.
+  - component: $CI_SERVER_FQDN/$CI_PROJECT_PATH/shexli@$CI_COMMIT_SHA
+    inputs:
+      job-name: component-test
+      path: tests/fixtures/extension
+
+stages: [test, release]
+
+python-tests:
+  stage: test
+  image: python:3.12
+  script:
+    - python3 -m unittest discover -v
+
+syntax:
+  stage: test
+  image: python:3.12
+  script:
+    - python3 -m py_compile check_shexli.py update_baseline.py test_check_shexli.py
+    - bash -n run.sh
+
+create-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "Creating release $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    description: "Release $CI_COMMIT_TAG of components in $CI_PROJECT_PATH"

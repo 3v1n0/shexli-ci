@@ -2,7 +2,8 @@
 
 [![Tests](https://github.com/3v1n0/shexli-ci/actions/workflows/tests.yml/badge.svg)](https://github.com/3v1n0/shexli-ci/actions/workflows/tests.yml)
 
-A reusable GitHub Action that runs [shexli](https://gitlab.gnome.org/3v1n0/extensions-web/-/tree/51-improvements/shexli),
+A reusable GitHub Action and GitLab CI template/component that runs
+[shexli](https://gitlab.gnome.org/3v1n0/extensions-web/-/tree/51-improvements/shexli),
 a static analyzer for GNOME Shell extensions, against an extension package or
 source tree, and fails when *new* findings appear compared to a baseline of
 known ones.
@@ -82,7 +83,7 @@ The same logic is available as `run.sh`, without GitHub Actions:
 
 `run.sh --help` documents all the options (`--baseline`, `--exclude`,
 `--format`, `--report`, `--install`, `--source`, `--allow-new`,
-`--on-resolved`).
+`--on-resolved`, `--summary`, `--codequality`).
 
 ## Inputs
 
@@ -208,6 +209,53 @@ occurrences, with the snippet collapsed on a single line. On GitHub Actions
 each occurrence is emitted as its own collapsible group (with the snippet shown
 as-is), so the log stays tidy. Annotations are only produced for findings that
 are not in the baseline. This does not happen when running `run.sh` locally.
+
+## GitLab CI
+
+The same check is available on GitLab as a reusable template or a CI/CD
+component. Both reuse `run.sh`, install shexli with pip, and publish the new
+findings as a [Code Quality report](https://docs.gitlab.com/ci/testing/code_quality/)
+for the merge request.
+
+### Remote include
+
+```yaml
+include:
+  - remote: 'https://raw.githubusercontent.com/3v1n0/shexli-ci/main/gitlab/shexli-ci.yml'
+
+shexli:
+  extends: .shexli
+  variables:
+    SHEXLI_PATH: extension.zip
+    SHEXLI_BASELINE: shexli-baseline.json
+    SHEXLI_BUILD: 'make _build && (cd _build && zip -qr ../extension.zip .)'
+```
+
+See [`gitlab/shexli-ci.yml`](gitlab/shexli-ci.yml) for the variables
+(`SHEXLI_PATH`, `SHEXLI_BASELINE`, `SHEXLI_EXCLUDE`, `SHEXLI_ON_RESOLVED`,
+`SHEXLI_BUILD`, `SHEXLI_SOURCE`, `SHEXLI_REPORT`, `SHEXLI_SUMMARY`,
+`SHEXLI_CODEQUALITY`). The extension package must already be built: set
+`SHEXLI_BUILD`, or consume an artifact from an earlier job.
+
+### CI/CD component
+
+Once the project is mirrored to a GitLab instance, the component
+([`templates/shexli`](templates/shexli)) exposes typed inputs instead:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/<path-to>/shexli-ci/shexli@main
+    inputs:
+      path: extension.zip
+      baseline: shexli-baseline.json
+      build: 'make _build && (cd _build && zip -qr ../extension.zip .)'
+```
+
+Both publish `shexli-report.json`, `shexli-summary.md` and
+`shexli-codequality.json` as artifacts. Code Quality findings appear in the
+merge request **Reports** tab (the inline **Changes** view requires GitLab
+Ultimate). As on GitHub, occurrences acknowledged inline are reported as
+warnings/`info` and never fail the job.
 
 ## License
 

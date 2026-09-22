@@ -34,6 +34,8 @@
 #       --allow-new       Do not fail on new findings, just report them.
 #       --on-resolved M   Warn (default) or fail when a baseline entry no
 #                         longer applies. M is "warn" or "fail".
+#       --summary FILE    Write the markdown job summary to FILE.
+#       --codequality FILE  Write a GitLab Code Quality report to FILE.
 #   -h, --help            Show this help.
 #
 # PATH defaults to "." and may be an extension directory or a ZIP archive.
@@ -49,9 +51,13 @@ REPORT='shexli-report.json'
 INSTALL=0
 ALLOW_NEW=''
 ON_RESOLVED='warn'
+SUMMARY=''
+CODEQUALITY=''
 EXCLUDES=()
 
-usage() { sed -n '24,39p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() {
+  sed -n '/^# Usage:/,/^# PATH defaults/p' "$0" | sed 's/^# \{0,1\}//'
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -63,6 +69,8 @@ while [ $# -gt 0 ]; do
     -s|--source) SOURCE="$2"; shift 2 ;;
     --allow-new) ALLOW_NEW='--allow-new'; shift ;;
     --on-resolved) ON_RESOLVED="$2"; shift 2 ;;
+    --summary) SUMMARY="$2"; shift 2 ;;
+    --codequality) CODEQUALITY="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) PATH_ARG="$1"; shift ;;
@@ -70,14 +78,18 @@ while [ $# -gt 0 ]; do
 done
 PATH_ARG="${PATH_ARG:-.}"
 
+if [ "$INSTALL" = 1 ]; then
+  python3 -m pip install --user --upgrade "$SOURCE"
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) PATH="$HOME/.local/bin:$PATH" ;;
+  esac
+fi
+
 command -v shexli >/dev/null 2>&1 || {
   echo "shexli not found in PATH. Install it (e.g. with --install) or add it." >&2
   exit 2
 }
-
-if [ "$INSTALL" = 1 ]; then
-  python3 -m pip install --user --upgrade "$SOURCE"
-fi
 
 args=(--format "$FORMAT")
 for pattern in "${EXCLUDES[@]}"; do
@@ -92,10 +104,14 @@ fi
 echo "Analyzing: $PATH_ARG"
 shexli "${args[@]}" "$PATH_ARG" > "$REPORT" || true
 
+check=(python3 "$SCRIPT_DIR/check_shexli.py"
+  --source "$PATH_ARG" --on-resolved "$ON_RESOLVED")
+if [ -n "$ALLOW_NEW" ]; then check+=("$ALLOW_NEW"); fi
+if [ -n "$SUMMARY" ]; then check+=(--summary "$SUMMARY"); fi
+if [ -n "$CODEQUALITY" ]; then check+=(--codequality "$CODEQUALITY"); fi
 if [ -n "$BASELINE" ]; then
-  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" \
-    --on-resolved "$ON_RESOLVED" "$REPORT" "$BASELINE"
+  check+=("$REPORT" "$BASELINE")
 else
-  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" \
-    --on-resolved "$ON_RESOLVED" "$REPORT"
+  check+=("$REPORT")
 fi
+"${check[@]}"

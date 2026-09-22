@@ -1,0 +1,113 @@
+spec:
+  description: >-
+    Run shexli (GNOME Shell extension static analyzer) on an extension package
+    or source tree, failing when new findings appear compared to a baseline.
+  component: [name, version, reference]
+  inputs:
+    job-name:
+      default: shexli
+      description: Name of the job created by this component.
+    stage:
+      default: test
+      description: Stage of the shexli job.
+    path:
+      default: '.'
+      description: Extension directory or ZIP archive to analyze.
+    baseline:
+      default: ''
+      description: >-
+        Path to a JSON baseline of known findings. Empty means strict mode
+        (every finding fails).
+    exclude:
+      default: ''
+      description: >-
+        Newline-separated glob patterns of files/directories to skip.
+    on-resolved:
+      default: warn
+      options: [warn, fail]
+      description: >-
+        Warn (default) or fail when a baseline entry no longer applies.
+    shexli-source:
+      default: >-
+        git+https://gitlab.gnome.org/3v1n0/extensions-web.git@51-improvements#subdirectory=shexli
+      description: pip-installable source of shexli.
+    python-version:
+      default: '3.12'
+      description: Python container image tag to run shexli with.
+    build:
+      default: ''
+      description: >-
+        Shell command run before the analysis to build the extension package.
+    report-path:
+      default: shexli-report.json
+      description: Where to write the shexli JSON report.
+    summary-path:
+      default: shexli-summary.md
+      description: Where to write the markdown job summary.
+    codequality-path:
+      default: shexli-codequality.json
+      description: Where to write the GitLab Code Quality report.
+    shexli-ci-repo:
+      default: 'https://github.com/3v1n0/shexli-ci.git'
+      description: >-
+        Git repository to clone for run.sh and check_shexli.py. Override it to
+        use a GitLab mirror.
+    shexli-ci-ref:
+      default: ''
+      description: >-
+        Ref of the shexli-ci repository to use. Defaults to the component
+        reference, or main when there is none.
+---
+
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  image: python:$[[ inputs.python-version ]]
+  variables:
+    SHEXLI_CI_REPO: '$[[ inputs.shexli-ci-repo ]]'
+    SHEXLI_CI_REF: '$[[ inputs.shexli-ci-ref ]]'
+    SHEXLI_PATH: '$[[ inputs.path ]]'
+    SHEXLI_BASELINE: '$[[ inputs.baseline ]]'
+    SHEXLI_ON_RESOLVED: '$[[ inputs.on-resolved ]]'
+    SHEXLI_SOURCE: '$[[ inputs.shexli-source ]]'
+    SHEXLI_BUILD: '$[[ inputs.build ]]'
+    SHEXLI_REPORT: '$[[ inputs.report-path ]]'
+    SHEXLI_SUMMARY: '$[[ inputs.summary-path ]]'
+    SHEXLI_CODEQUALITY: '$[[ inputs.codequality-path ]]'
+    GIT_DEPTH: '1'
+  script:
+    - |
+      ref="${SHEXLI_CI_REF:-$[[ component.reference ]]}"
+      ref="${ref:-main}"
+      git clone --depth 1 --branch "$ref" "$SHEXLI_CI_REPO" .shexli-ci
+    - |
+      if [ -n "$SHEXLI_BUILD" ]; then
+        eval "$SHEXLI_BUILD"
+      fi
+    - |
+      cat > .shexli-exclude <<'SHEXLI_EXCLUDE_EOF'
+      $[[ inputs.exclude ]]
+      SHEXLI_EXCLUDE_EOF
+    - |
+      set -- --install --format json --report "$SHEXLI_REPORT" \
+        --summary "$SHEXLI_SUMMARY" --codequality "$SHEXLI_CODEQUALITY" \
+        --on-resolved "$SHEXLI_ON_RESOLVED"
+      if [ -n "$SHEXLI_SOURCE" ]; then
+        set -- "$@" --source "$SHEXLI_SOURCE"
+      fi
+      while IFS= read -r pattern; do
+        if [ -n "$pattern" ]; then
+          set -- "$@" --exclude "$pattern"
+        fi
+      done < .shexli-exclude
+      if [ -n "$SHEXLI_BASELINE" ]; then
+        set -- "$@" -b "$SHEXLI_BASELINE"
+      fi
+      .shexli-ci/run.sh "$@" "$SHEXLI_PATH"
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - $SHEXLI_REPORT
+      - $SHEXLI_SUMMARY
+    reports:
+      codequality: $SHEXLI_CODEQUALITY

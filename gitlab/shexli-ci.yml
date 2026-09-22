@@ -1,0 +1,84 @@
+# Reusable GitLab CI template for shexli-ci.
+#
+# Runs shexli (the GNOME Shell extension static analyzer) on an extension
+# package or source tree and fails when *new* findings appear compared to a
+# baseline of known ones. It reuses the same check script as the GitHub action.
+#
+# Usage:
+#
+#   include:
+#     - remote: 'https://raw.githubusercontent.com/3v1n0/shexli-ci/main/gitlab/shexli-ci.yml'
+#
+#   shexli:
+#     extends: .shexli
+#     variables:
+#       SHEXLI_PATH: extension.zip
+#       SHEXLI_BASELINE: shexli-baseline.json
+#
+# The job clones the shexli-ci scripts at $SHEXLI_CI_REF (default: main) and
+# installs shexli with pip. The extension package must already be built: set
+# SHEXLI_BUILD to a command that produces it, or use artifacts from an earlier
+# job.
+#
+# Variables:
+#   SHEXLI_CI_REPO        shexli-ci git repository to clone.
+#   SHEXLI_CI_REF         Ref to clone (default: main).
+#   SHEXLI_PYTHON_VERSION Python container image tag (default: 3.12).
+#   SHEXLI_PATH           Extension directory or ZIP archive to analyze.
+#   SHEXLI_BASELINE       Baseline JSON of known findings (optional).
+#   SHEXLI_EXCLUDE        Newline-separated glob patterns of files to skip.
+#   SHEXLI_ON_RESOLVED    warn (default) or fail when a baseline entry is gone.
+#   SHEXLI_SOURCE         pip-installable shexli source (optional).
+#   SHEXLI_BUILD          Shell command run before the analysis (optional).
+#   SHEXLI_REPORT         Where to write the JSON report.
+#   SHEXLI_SUMMARY        Where to write the markdown summary.
+#   SHEXLI_CODEQUALITY    Where to write the Code Quality report.
+
+.shexli:
+  image: python:${SHEXLI_PYTHON_VERSION}
+  variables:
+    SHEXLI_CI_REPO: 'https://github.com/3v1n0/shexli-ci.git'
+    SHEXLI_CI_REF: 'main'
+    SHEXLI_PYTHON_VERSION: '3.12'
+    SHEXLI_PATH: '.'
+    SHEXLI_BASELINE: ''
+    SHEXLI_EXCLUDE: ''
+    SHEXLI_ON_RESOLVED: 'warn'
+    SHEXLI_SOURCE: ''
+    SHEXLI_BUILD: ''
+    SHEXLI_REPORT: 'shexli-report.json'
+    SHEXLI_SUMMARY: 'shexli-summary.md'
+    SHEXLI_CODEQUALITY: 'shexli-codequality.json'
+    GIT_DEPTH: '1'
+  script:
+    - git clone --depth 1 --branch "$SHEXLI_CI_REF" "$SHEXLI_CI_REPO" .shexli-ci
+    - |
+      if [ -n "$SHEXLI_BUILD" ]; then
+        eval "$SHEXLI_BUILD"
+      fi
+    - |
+      set -- --install --format json --report "$SHEXLI_REPORT" \
+        --summary "$SHEXLI_SUMMARY" --codequality "$SHEXLI_CODEQUALITY" \
+        --on-resolved "$SHEXLI_ON_RESOLVED"
+      if [ -n "$SHEXLI_SOURCE" ]; then
+        set -- "$@" --source "$SHEXLI_SOURCE"
+      fi
+      while IFS= read -r pattern; do
+        if [ -n "$pattern" ]; then
+          set -- "$@" --exclude "$pattern"
+        fi
+      done <<EOF
+      $SHEXLI_EXCLUDE
+      EOF
+      if [ -n "$SHEXLI_BASELINE" ]; then
+        set -- "$@" -b "$SHEXLI_BASELINE"
+      fi
+      .shexli-ci/run.sh "$@" "$SHEXLI_PATH"
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - $SHEXLI_REPORT
+      - $SHEXLI_SUMMARY
+    reports:
+      codequality: $SHEXLI_CODEQUALITY

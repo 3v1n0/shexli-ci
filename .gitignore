@@ -1,5 +1,7 @@
 # shexli reports generated at run time
 shexli-report.json
+shexli-summary.md
+shexli-codequality.json
 *.zip
 
 # Python
