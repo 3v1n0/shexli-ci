@@ -71,14 +71,20 @@ runs:
         SHEXLI_FORMAT: ${{ inputs.format }}
         SHEXLI_REPORT: ${{ inputs.report-path }}
       run: |
-        set -euo pipefail
+        set -uo pipefail
         args=(--format "$SHEXLI_FORMAT")
         while IFS= read -r pattern; do
           [ -n "$pattern" ] && args+=(--exclude "$pattern")
         done <<< "$SHEXLI_EXCLUDE"
-        shexli "${args[@]}" "$SHEXLI_PATH" > "$SHEXLI_REPORT"
+        # shexli exits with 1 when it finds issues, which is not an error for
+        # us: the regression check below decides whether that is a failure.
+        shexli "${args[@]}" "$SHEXLI_PATH" > "$SHEXLI_REPORT" || true
+        if [ ! -s "$SHEXLI_REPORT" ]; then
+          echo "shexli did not produce a report for '$SHEXLI_PATH'" >&2
+          exit 1
+        fi
         echo "report=$SHEXLI_REPORT" >> "$GITHUB_OUTPUT"
-        count=$(python3 -c "import json,sys; print(json.load(open('$SHEXLI_REPORT'))['summary']['finding_count'])" 2>/dev/null || echo 0)
+        count=$(python3 -c "import json,sys; print(json.load(open('$SHEXLI_REPORT'))['summary']['finding_count'])")
         echo "finding-count=$count" >> "$GITHUB_OUTPUT"
         echo "shexli found $count finding(s)"
 
