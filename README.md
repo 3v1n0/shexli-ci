@@ -151,6 +151,19 @@ PY
   baseline can be pruned), but do not fail.
 - With no baseline, every finding fails (strict mode).
 
+## Reports
+
+When running on GitHub Actions the action also:
+
+- **Annotates the new findings** on their source lines (as errors/warnings in
+  the *Files changed* view of the pull request), pointing at the offending file
+  and line.
+- Writes a **job summary** with the new and resolved findings, shown on the
+  workflow run page.
+
+Both are only produced for findings that are not in the baseline; accepted
+findings stay quiet. This does not happen when running `run.sh` locally.
+
 ## License
 
 GPL-3.0-or-later. See [COPYING](COPYING).

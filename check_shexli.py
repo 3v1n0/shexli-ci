@@ -27,6 +27,10 @@ baseline can be pruned.
 A finding is identified by its rule id plus its evidence, using the file base
 name (zip/input prefix stripped) and the evidence snippets. This is stable
 across line changes, file moves inside the package and different input names.
+
+When running inside GitHub Actions (GITHUB_ACTIONS is set), new findings are
+also emitted as workflow annotations (errors on their source line) and a job
+summary is written to GITHUB_STEP_SUMMARY.
 """
 
 import argparse
@@ -39,6 +43,12 @@ def _basename(path):
     # Evidence paths look like "extension.zip:src/foo.js" or "src/foo.js".
     path = path.rsplit(":", 1)[-1]
     return os.path.basename(path)
+
+
+def _display_path(path):
+    # Same as _basename() but keeping the package-relative directories, so the
+    # annotation can point at the file in the repository.
+    return path.rsplit(":", 1)[-1]
 
 
 def _finding_key(finding):
@@ -62,8 +72,12 @@ def _describe(key):
     return f"{rule_id} ({detail})"
 
 
-def load_findings(report):
-    return {_finding_key(f) for f in report.get("findings", [])}
+def _index_findings(report):
+    """Map each finding key to its finding object(s)."""
+    indexed = {}
+    for finding in report.get("findings", []):
+        indexed.setdefault(_finding_key(finding), finding)
+    return indexed
 
 
 def load_baseline(baseline):
@@ -76,26 +90,100 @@ def load_baseline(baseline):
     return keys
 
 
+def _annotate(finding):
+    """Emit a GitHub workflow annotation for each evidence line."""
+    rule_id = finding.get("rule_id", "shexli")
+    severity = finding.get("severity", "warning")
+    level = "error" if severity == "error" else "warning"
+    message = finding.get("message", "").replace("\n", " ")
+    evidence = finding.get("evidence", []) or [{}]
+    for ev in evidence:
+        path = ev.get("path")
+        line = ev.get("line")
+        props = [f"title={rule_id}"]
+        if path:
+            props.append(f"file={_display_path(path)}")
+        if line:
+            props.append(f"line={line}")
+        print(f"::{level} {','.join(props)}::{message}")
+
+
+def _write_summary(report, new_keys, resolved_keys, indexed, has_baseline=True):
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    counts = report.get("summary", {}).get("severity_counts", {})
+    lines = ["## shexli"]
+    lines.append("")
+    if not has_baseline:
+        lines.append(f"⚠️ No baseline: {len(new_keys)} finding(s) reported")
+    elif new_keys:
+        lines.append(f"❌ **{len(new_keys)} new finding(s)** not in the baseline")
+    else:
+        lines.append("✅ No new findings")
+    lines.append("")
+
+    def finding_rows(keys):
+        rows = ["| Rule | Severity | Message | Files |",
+                "| --- | --- | --- | --- |"]
+        for key in sorted(keys):
+            finding = indexed.get(key, {})
+            rule_id = finding.get("rule_id", key[0])
+            severity = finding.get("severity", "warning")
+            message = finding.get("message", "").replace("\n", " ")
+            paths = ", ".join(key[1]) or "-"
+            rows.append(f"| `{rule_id}` | {severity} | {message} | {paths} |")
+        return rows
+
+    if new_keys:
+        lines.append("### New findings" if has_baseline else "### Findings")
+        lines.extend(finding_rows(new_keys))
+        lines.append("")
+    if resolved_keys:
+        lines.append("### Resolved (baseline can be pruned)")
+        lines.append("")
+        lines.append(", ".join(f"`{k[0]}` ({', '.join(k[1])})"
+                              for k in sorted(resolved_keys)))
+        lines.append("")
+
+    lines.append(f"Total: {counts.get('error', 0)} error(s), "
+                 f"{counts.get('warning', 0)} warning(s)")
+    lines.append("")
+
+    with open(summary_path, "a") as f:
+        f.write("\n".join(lines))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", help="shexli JSON report")
     parser.add_argument("baseline", nargs="?", help="baseline JSON file")
     parser.add_argument("--allow-new", action="store_true",
                         help="do not fail on new findings (report only)")
+    parser.add_argument("--no-annotate", action="store_true",
+                        help="do not emit GitHub workflow annotations")
     args = parser.parse_args()
 
     with open(args.report) as f:
         report = json.load(f)
 
-    current = load_findings(report)
+    indexed = _index_findings(report)
+    current = set(indexed)
     summary = report.get("summary", {})
+
+    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    annotate = in_actions and not args.no_annotate
 
     if not args.baseline or not os.path.exists(args.baseline):
         print("No baseline provided, reporting all findings:")
         for key in sorted(current):
             print(f"  - {_describe(key)}")
+            if annotate:
+                _annotate(indexed[key])
         print(f"\n{len(current)} finding(s), "
               f"{summary.get('severity_counts', {})}")
+        _write_summary(report, current, set(), indexed, has_baseline=False)
         return 0 if args.allow_new else (1 if current else 0)
 
     with open(args.baseline) as f:
@@ -111,9 +199,13 @@ def main():
         print("\nNew findings not present in the baseline:")
         for key in sorted(new):
             print(f"  - {_describe(key)}")
+            if annotate:
+                _annotate(indexed[key])
 
     print(f"\n{len(current)} finding(s): "
           f"{len(new)} new, {len(resolved)} resolved")
+
+    _write_summary(report, new, resolved, indexed)
 
     if new and not args.allow_new:
         print("\nERROR: shexli reported new findings.")
