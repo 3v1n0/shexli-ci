@@ -1,0 +1,97 @@
+name: shexli CI
+description: >-
+  Run shexli (GNOME Shell extension static analyzer) and fail if new findings
+  appear compared to a baseline of known ones.
+author: Marco Trevisan (Treviño)
+
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  path:
+    description: >-
+      Path to the extension directory or ZIP archive to analyze.
+    required: false
+    default: '.'
+  baseline:
+    description: >-
+      Path to a JSON baseline of known findings. When provided, only findings
+      not listed there cause the action to fail. If empty, every finding fails.
+    required: false
+    default: ''
+  exclude:
+    description: >-
+      Newline-separated glob patterns of files/directories to skip. Repeatable
+      in nature, one pattern per line.
+    required: false
+    default: ''
+  shexli-source:
+    description: >-
+      pip-installable source of shexli (PEP 508 URL or package name).
+    required: false
+    default: 'git+https://gitlab.gnome.org/3v1n0/extensions-web.git@51-improvements#subdirectory=shexli'
+  python-version:
+    description: Python version to run shexli with.
+    required: false
+    default: '3.12'
+  format:
+    description: Output format passed to shexli (json or text).
+    required: false
+    default: 'json'
+  report-path:
+    description: Where to write the shexli JSON report.
+    required: false
+    default: 'shexli-report.json'
+
+outputs:
+  report:
+    description: Path to the generated shexli JSON report.
+    value: ${{ steps.shexli.outputs.report }}
+  finding-count:
+    description: Number of findings reported by shexli.
+    value: ${{ steps.shexli.outputs.finding-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install shexli
+      shell: bash
+      run: |
+        python3 -m pip install --user --upgrade pip
+        python3 -m pip install --user "${{ inputs.shexli-source }}"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Run shexli
+      id: shexli
+      shell: bash
+      env:
+        SHEXLI_PATH: ${{ inputs.path }}
+        SHEXLI_EXCLUDE: ${{ inputs.exclude }}
+        SHEXLI_FORMAT: ${{ inputs.format }}
+        SHEXLI_REPORT: ${{ inputs.report-path }}
+      run: |
+        set -euo pipefail
+        args=(--format "$SHEXLI_FORMAT")
+        while IFS= read -r pattern; do
+          [ -n "$pattern" ] && args+=(--exclude "$pattern")
+        done <<< "$SHEXLI_EXCLUDE"
+        shexli "${args[@]}" "$SHEXLI_PATH" > "$SHEXLI_REPORT"
+        echo "report=$SHEXLI_REPORT" >> "$GITHUB_OUTPUT"
+        count=$(python3 -c "import json,sys; print(json.load(open('$SHEXLI_REPORT'))['summary']['finding_count'])" 2>/dev/null || echo 0)
+        echo "finding-count=$count" >> "$GITHUB_OUTPUT"
+        echo "shexli found $count finding(s)"
+
+    - name: Check for regressions
+      shell: bash
+      env:
+        SHEXLI_REPORT: ${{ inputs.report-path }}
+        SHEXLI_BASELINE: ${{ inputs.baseline }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        if [ -n "$SHEXLI_BASELINE" ]; then
+          python3 "$ACTION_PATH/check_shexli.py" "$SHEXLI_REPORT" "$SHEXLI_BASELINE"
+        else
+          python3 "$ACTION_PATH/check_shexli.py" "$SHEXLI_REPORT"
+        fi

@@ -1,0 +1,7 @@
+# shexli reports generated at run time
+shexli-report.json
+*.zip
+
+# Python
+__pycache__/
+*.pyc
