@@ -93,11 +93,12 @@ runs:
       env:
         SHEXLI_REPORT: ${{ inputs.report-path }}
         SHEXLI_BASELINE: ${{ inputs.baseline }}
+        SHEXLI_PATH: ${{ inputs.path }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
         if [ -n "$SHEXLI_BASELINE" ]; then
-          python3 "$ACTION_PATH/check_shexli.py" "$SHEXLI_REPORT" "$SHEXLI_BASELINE"
+          python3 "$ACTION_PATH/check_shexli.py" --source "$SHEXLI_PATH" "$SHEXLI_REPORT" "$SHEXLI_BASELINE"
         else
-          python3 "$ACTION_PATH/check_shexli.py" "$SHEXLI_REPORT"
+          python3 "$ACTION_PATH/check_shexli.py" --source "$SHEXLI_PATH" "$SHEXLI_REPORT"
         fi

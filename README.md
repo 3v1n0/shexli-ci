@@ -141,12 +141,49 @@ example when generating from a subset of the package).
 Generate the baseline from the same kind of input the check runs on (the built
 ZIP archive), otherwise the findings will not match.
 
+## Acknowledging findings inline
+
+Besides the baseline, a single occurrence can be acknowledged right next to the
+code. Put the directive alone on the line before it, and it acknowledges the
+next code line (blank and comment-only lines in between are skipped):
+
+```js
+// shexli-ci: EGO-I-004 - required to reimplement the vfunc
+prototype = prototype[Gi.hook_up_vfunc_symbol];
+```
+
+Or attach it to the offending line itself, as a trailing `//` comment or a
+`/* */` comment surrounded by code:
+
+```js
+prototype = prototype[Gi.hook_up_vfunc_symbol]; // shexli-ci: EGO-I-004 - required
+this._staticBox = new Clutter.ActorBox(); /* shexli-ci: EGO-L-002 - sized later */
+```
+
+So a directive acknowledges **the line it shares with code**, if any, and
+otherwise **the next code line**. It must name one or more exact rule ids
+(comma or space separated) and must carry a non-empty rationale after ` - `.
+
+Acknowledged occurrences are still reported and annotated, but as **warnings**,
+and they never make the check fail. Only the acknowledged occurrence is
+ignored: if a finding has other occurrences without a directive, those keep
+failing. A directive without a rationale is invalid, acknowledges nothing and
+fails the check.
+
+Directives are read from the analyzed input (the ZIP archive or directory), so
+they must be part of the packaged extension. They are recognized in
+JavaScript-style sources (`.js`, `.mjs`, `.ts`, `.css`, …).
+
 ## Behavior
 
 - Findings **not** present in the baseline make the action fail.
 - Baseline entries that no longer appear are reported as *resolved* (so the
   baseline can be pruned), but do not fail.
-- With no baseline, every finding fails (strict mode).
+- Occurrences acknowledged with an inline `shexli-ci:` directive do not fail,
+  but are still reported (as warnings).
+- A malformed `shexli-ci:` directive (missing rationale) fails the check.
+- With no baseline, every finding fails (strict mode), unless acknowledged
+  inline.
 
 ## Reports
 
@@ -154,9 +191,12 @@ When running on GitHub Actions the action also:
 
 - **Annotates the new findings** on their source lines (as errors/warnings in
   the *Files changed* view of the pull request), pointing at the offending file
-  and line, with one annotation per occurrence.
-- Writes a **job summary** with the new findings, the accepted ones (collapsed)
-  and the resolved ones, shown on the workflow run page.
+  and line, with one annotation per occurrence. Occurrences acknowledged with an
+  inline `shexli-ci:` directive are annotated as warnings and include their
+  rationale.
+- Writes a **job summary** with the new findings, the acknowledged ones, the
+  accepted ones (collapsed) and the resolved ones, shown on the workflow run
+  page.
 
 The console output is verbose: a line for each finding and one for each of its
 occurrences, with the snippet collapsed on a single line. On GitHub Actions

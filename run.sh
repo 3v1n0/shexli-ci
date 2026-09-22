@@ -89,7 +89,7 @@ echo "Analyzing: $PATH_ARG"
 shexli "${args[@]}" "$PATH_ARG" > "$REPORT" || true
 
 if [ -n "$BASELINE" ]; then
-  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW "$REPORT" "$BASELINE"
+  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" "$REPORT" "$BASELINE"
 else
-  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW "$REPORT"
+  python3 "$SCRIPT_DIR/check_shexli.py" $ALLOW_NEW --source "$PATH_ARG" "$REPORT"
 fi
