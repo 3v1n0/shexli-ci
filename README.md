@@ -11,6 +11,11 @@ review issues.
 
 ## Usage
 
+### On a built package (recommended)
+
+The ZIP archive is the input that matches what extensions.gnome.org reviews, so
+it is the most representative one to check.
+
 ```yaml
 jobs:
   shexli:
@@ -29,11 +34,58 @@ jobs:
             *-48.js
 ```
 
+### On the source tree
+
+shexli also accepts a plain directory, so the action can analyze the checkout
+directly (no build/zip step). This is handy for quick checks, but note the
+results differ from the packaged ones: development and build files are seen,
+and files that are only reachable through the packaged layout (e.g. vendored
+copies) may be reported as unreachable. Use `exclude` for the files that are
+not part of the shipped extension, and keep a separate baseline if needed.
+
+```yaml
+jobs:
+  shexli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: 3v1n0/shexli-ci@main
+        with:
+          path: .
+          baseline: shexli-baseline.json
+          exclude: |
+            .eslintrc.yml
+            .gitignore
+            Makefile
+            po/**
+            schemas/gschemas.compiled
+            debian/**
+            node_modules/**
+```
+
+## Running locally
+
+The same logic is available as `run.sh`, without GitHub Actions:
+
+```sh
+# Analyze a built package against a baseline
+./run.sh -b shexli-baseline.json extension.zip
+
+# Analyze the current tree, installing shexli if missing
+./run.sh -i -x 'po/**' -x 'debian/**' .
+
+# Just list the findings, do not fail on them
+./run.sh --allow-new .
+```
+
+`run.sh --help` documents all the options (`--baseline`, `--exclude`,
+`--format`, `--report`, `--install`, `--source`, `--allow-new`).
+
 ## Inputs
 
 | Input            | Default                                              | Description                                              |
 | ---------------- | ---------------------------------------------------- | -------------------------------------------------------- |
-| `path`           | `.`                                                  | Directory or ZIP archive to analyze.                     |
+| `path`           | `.`                                                  | Extension directory or ZIP archive to analyze.            |
 | `baseline`       | *(empty)*                                            | Baseline JSON of known findings. Empty means strict mode.|
 | `exclude`        | *(empty)*                                            | Newline-separated glob patterns of files to skip.        |
 | `shexli-source`  | `git+https://gitlab.gnome.org/3v1n0/extensions-web.git@51-improvements#subdirectory=shexli` | pip-installable source of shexli. |
