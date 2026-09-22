@@ -125,24 +125,21 @@ generated with.
 
 ### Generating/updating the baseline
 
-Run shexli on your package and turn its findings into baseline entries:
+Run shexli on your package and turn its findings into baseline entries with
+`update_baseline.py`:
 
 ```sh
 shexli --format json extension.zip > report.json
-python3 - <<'PY'
-import json, sys
-sys.path.insert(0, 'path/to/shexli-ci')
-from check_shexli import _finding_key
-report = json.load(open('report.json'))
-known = []
-for f in report['findings']:
-    rule_id, paths, snippets = _finding_key(f)
-    known.append({'rule_id': rule_id, 'paths': list(paths),
-                  'snippets': list(snippets)})
-json.dump({'spec_version': report.get('spec_version'), 'known': known},
-          open('shexli-baseline.json', 'w'), indent=2)
-PY
+./update_baseline.py report.json shexli-baseline.json
 ```
+
+`update_baseline.py` is self-contained, so it can be copied into a project and
+run from there. By default it writes the findings of the given report as the
+new baseline; pass `--merge` to keep entries that are no longer reported (for
+example when generating from a subset of the package).
+
+Generate the baseline from the same kind of input the check runs on (the built
+ZIP archive), otherwise the findings will not match.
 
 ## Behavior
 
