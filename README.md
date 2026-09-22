@@ -90,7 +90,7 @@ The same logic is available as `run.sh`, without GitHub Actions:
 | Input            | Default                                              | Description                                              |
 | ---------------- | ---------------------------------------------------- | -------------------------------------------------------- |
 | `path`           | `.`                                                  | Extension directory or ZIP archive to analyze.            |
-| `baseline`       | *(empty)*                                            | Baseline JSON of known findings. Empty means strict mode.|
+| `baseline`       | *(empty)*                                            | Baseline JSON of known findings. Empty auto-detects the default files. |
 | `on-resolved`    | `warn`                                               | `warn` or `fail` when a baseline entry no longer applies. |
 | `exclude`        | *(empty)*                                            | Newline-separated glob patterns of files to skip.        |
 | `shexli-source`  | `git+https://gitlab.gnome.org/3v1n0/extensions-web.git@51-improvements#subdirectory=shexli` | pip-installable source of shexli. |
@@ -137,6 +137,10 @@ Run shexli on your package and turn its findings into baseline entries with
 shexli --format json extension.zip > report.json
 ./update_baseline.py report.json shexli-baseline.json
 ```
+
+The check picks up `.shexli-baseline.json` (hidden) or `shexli-baseline.json`
+automatically when no baseline is given, so naming the file one of those is
+enough to enable the comparison without configuring anything.
 
 `update_baseline.py` is self-contained, so it can be copied into a project and
 run from there. By default it writes the findings of the given report as the
@@ -188,8 +192,9 @@ JavaScript-style sources (`.js`, `.mjs`, `.ts`, `.css`, …).
 - Occurrences acknowledged with an inline `shexli-ci:` directive do not fail,
   but are still reported (as warnings).
 - A malformed `shexli-ci:` directive (missing rationale) fails the check.
-- With no baseline, every finding fails (strict mode), unless acknowledged
-  inline.
+- With no baseline, `.shexli-baseline.json` (hidden) and `shexli-baseline.json`
+  are used if present; otherwise every finding fails (strict mode), unless
+  acknowledged inline.
 
 ## Reports
 

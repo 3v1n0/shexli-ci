@@ -25,7 +25,9 @@
 #   ./run.sh [options] [PATH]
 #
 # Options:
-#   -b, --baseline FILE   Baseline JSON of known findings (optional).
+#   -b, --baseline FILE   Baseline JSON of known findings (optional). Defaults
+#                         to .shexli-baseline.json or shexli-baseline.json when
+#                         present.
 #   -x, --exclude GLOB    Exclude files matching GLOB (repeatable).
 #   -f, --format FORMAT   shexli output format, json or text (default: json).
 #   -o, --report FILE     Where to write the report (default: shexli-report.json).

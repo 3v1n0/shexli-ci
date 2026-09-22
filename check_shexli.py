@@ -23,7 +23,9 @@ The baseline lists the findings that are known and accepted, so that CI only
 fails when a *new* finding appears (a regression). Findings that were in the
 baseline but are no longer reported are reported as resolved, so the baseline
 can be pruned; depending on ``--on-resolved`` they are warned about (the
-default) or make the check fail.
+default) or make the check fail. When no baseline is given, the conventional
+``.shexli-baseline.json`` (hidden) and ``shexli-baseline.json`` files are used
+if present, otherwise the check runs in strict mode.
 
 A finding is identified by its rule id plus its evidence, using the file base
 name (zip/input prefix stripped) and the evidence snippets. This is stable
@@ -169,6 +171,28 @@ def load_baseline(baseline):
         snippets = tuple(sorted(entry.get("snippets", [])))
         keys.add((entry.get("rule_id"), paths, snippets))
     return keys
+
+
+# Conventional baseline files tried, in order, when none is given explicitly.
+DEFAULT_BASELINES = (".shexli-baseline.json", "shexli-baseline.json")
+
+
+def _resolve_baseline(explicit):
+    """Return the baseline file to use, or None to run in strict mode.
+
+    An explicit path is used as is (and reported when missing). Without one,
+    the conventional names are tried, hidden one first, so a project can just
+    drop a `.shexli-baseline.json` in the repository root.
+    """
+    if explicit:
+        if os.path.exists(explicit):
+            return explicit
+        print(f"warning: baseline not found: {explicit}", file=sys.stderr)
+        return None
+    for candidate in DEFAULT_BASELINES:
+        if os.path.exists(candidate):
+            return candidate
+    return None
 
 
 def _iter_comments(text):
@@ -689,7 +713,10 @@ def _write_summary(report, new_keys, resolved_keys, accepted_keys, indexed,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", help="shexli JSON report")
-    parser.add_argument("baseline", nargs="?", help="baseline JSON file")
+    parser.add_argument("baseline", nargs="?",
+                        help="baseline JSON file (defaults to "
+                             ".shexli-baseline.json or shexli-baseline.json "
+                             "when present)")
     parser.add_argument("--allow-new", action="store_true",
                         help="do not fail on new findings (report only)")
     parser.add_argument("--no-annotate", action="store_true",
@@ -725,10 +752,12 @@ def main():
     directives, malformed = _collect_directives(
         source, [indexed[key] for key in sorted(current)])
 
-    has_baseline = bool(args.baseline) and os.path.exists(args.baseline)
+    baseline_path = _resolve_baseline(args.baseline)
+    has_baseline = baseline_path is not None
     if has_baseline:
-        with open(args.baseline) as f:
+        with open(baseline_path) as f:
             baseline = load_baseline(json.load(f))
+        print(f"Using baseline: {baseline_path}")
     else:
         baseline = set()
         print("No baseline provided, reporting all findings:")

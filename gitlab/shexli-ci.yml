@@ -25,7 +25,8 @@
 #   SHEXLI_CI_REF         Ref to clone (default: main).
 #   SHEXLI_PYTHON_VERSION Python container image tag (default: 3.12).
 #   SHEXLI_PATH           Extension directory or ZIP archive to analyze.
-#   SHEXLI_BASELINE       Baseline JSON of known findings (optional).
+#   SHEXLI_BASELINE       Baseline JSON of known findings (optional; defaults
+#                         to .shexli-baseline.json / shexli-baseline.json).
 #   SHEXLI_EXCLUDE        Newline-separated glob patterns of files to skip.
 #   SHEXLI_ON_RESOLVED    warn (default) or fail when a baseline entry is gone.
 #   SHEXLI_SOURCE         pip-installable shexli source (optional).

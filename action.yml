@@ -17,7 +17,9 @@ inputs:
   baseline:
     description: >-
       Path to a JSON baseline of known findings. When provided, only findings
-      not listed there cause the action to fail. If empty, every finding fails.
+      not listed there cause the action to fail. When empty,
+      .shexli-baseline.json or shexli-baseline.json are used if present;
+      otherwise every finding fails.
     required: false
     default: ''
   on-resolved:

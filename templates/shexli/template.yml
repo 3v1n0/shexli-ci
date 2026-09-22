@@ -16,8 +16,9 @@ spec:
     baseline:
       default: ''
       description: >-
-        Path to a JSON baseline of known findings. Empty means strict mode
-        (every finding fails).
+        Path to a JSON baseline of known findings. Empty means the conventional
+        .shexli-baseline.json / shexli-baseline.json are used when present,
+        otherwise strict mode (every finding fails).
     exclude:
       default: ''
       description: >-

@@ -394,6 +394,56 @@ class CheckCliTests(unittest.TestCase):
         self.assertIn("section_end:", result.stdout)
         self.assertNotIn("::group::", result.stdout)
 
+    def _write_relative_report(self, name="report.json"):
+        with open(os.path.join(self.dir, "src.js"), "w") as f:
+            f.write("imports._gi;\n")
+        payload = report([finding("EGO-I-004", "src.js", [1])], ".")
+        with open(os.path.join(self.dir, name), "w") as f:
+            json.dump(payload, f)
+
+    def _run_relative(self, *args):
+        return subprocess.run(
+            [sys.executable, CHECK, "--source", ".", *args],
+            capture_output=True, text=True, cwd=self.dir,
+            env={k: v for k, v in os.environ.items()
+                 if k != "GITHUB_ACTIONS"})
+
+    def _write_accepting_baseline(self, name):
+        with open(os.path.join(self.dir, name), "w") as f:
+            json.dump({"spec_version": "x", "known": [
+                {"rule_id": "EGO-I-004", "paths": ["src.js"],
+                 "snippets": ["code"]}]}, f)
+
+    def test_hidden_default_baseline_is_used(self):
+        self._write_relative_report()
+        self._write_accepting_baseline(".shexli-baseline.json")
+        result = self._run_relative("report.json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Using baseline: .shexli-baseline.json", result.stdout)
+        self.assertIn("Accepted (known) findings", result.stdout)
+
+    def test_default_baseline_fallback_name(self):
+        self._write_relative_report()
+        self._write_accepting_baseline("shexli-baseline.json")
+        result = self._run_relative("report.json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Using baseline: shexli-baseline.json", result.stdout)
+
+    def test_explicit_baseline_overrides_default(self):
+        self._write_relative_report()
+        self._write_accepting_baseline(".shexli-baseline.json")
+        with open(os.path.join(self.dir, "empty.json"), "w") as f:
+            json.dump({"spec_version": "x", "known": []}, f)
+        result = self._run_relative("report.json", "empty.json")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Using baseline: .shexli-baseline.json", result.stdout)
+
+    def test_missing_explicit_baseline_warns_and_is_strict(self):
+        self._write_relative_report()
+        result = self._run_relative("report.json", "does-not-exist.json")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("baseline not found", result.stderr)
+
     def test_zip_source_is_supported(self):
         archive = os.path.join(self.dir, "extension.zip")
         with zipfile.ZipFile(archive, "w") as zf:

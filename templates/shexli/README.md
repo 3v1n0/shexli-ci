@@ -26,7 +26,7 @@ it, or consume an artifact from an earlier job.
 | `job-name`          | `shexli`                         | Name of the generated job.                              |
 | `stage`             | `test`                           | Stage of the generated job.                             |
 | `path`              | `.`                              | Extension directory or ZIP archive to analyze.          |
-| `baseline`          | *(empty)*                        | Baseline JSON of known findings; empty is strict mode.  |
+| `baseline`          | *(empty)*                        | Baseline JSON of known findings; empty auto-detects the default files. |
 | `exclude`           | *(empty)*                        | Newline-separated glob patterns of files to skip.       |
 | `on-resolved`       | `warn`                           | `warn` or `fail` when a baseline entry no longer applies.|
 | `shexli-source`     | the shexli git source            | pip-installable source of shexli.                       |
