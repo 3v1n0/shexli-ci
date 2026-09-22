@@ -139,6 +139,22 @@ class DirectiveParsingTests(unittest.TestCase):
             covered, {2: [(["EGO-I-004", "EGO-P-007"], "needed")]})
 
 
+class OccurrenceTests(unittest.TestCase):
+    def test_occurrences_collapse_by_location_keeping_longest_snippet(self):
+        finding = {
+            "rule_id": "EGO-L-001",
+            "evidence": [
+                {"path": "a.js", "line": 1, "snippet": "short"},
+                {"path": "a.js", "line": 1, "snippet": "a much longer snippet"},
+                {"path": "a.js", "line": 2, "snippet": "other"},
+            ],
+        }
+        occurrences = list(check_shexli._unique_occurrences(finding))
+        self.assertEqual(len(occurrences), 2)
+        self.assertEqual(occurrences[0][0]["snippet"], "a much longer snippet")
+        self.assertEqual(occurrences[1][0]["snippet"], "other")
+
+
 class CheckCliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -262,6 +278,29 @@ class CheckCliTests(unittest.TestCase):
         result = self.run_check()
         self.assertNotIn("Malformed shexli-ci", result.stdout)
         self.assertEqual(result.returncode, 1)
+
+    def test_duplicate_locations_are_annotated_once(self):
+        duplicate = {
+            "rule_id": "EGO-L-001",
+            "title": "EGO-L-001",
+            "severity": "warning",
+            "message": "Resource setup outside enable().",
+            "evidence": [
+                {"path": self.source, "line": 2, "snippet": "short"},
+                {"path": self.source, "line": 2,
+                 "snippet": "this._watchDog.connect('vanished', ...)"},
+            ],
+        }
+        self.write(
+            "// shexli-ci: EGO-L-001 - kept alive while disabled\n"
+            "this._watchDog.connect('vanished', ...);\n",
+            [duplicate])
+        env = dict(os.environ, GITHUB_ACTIONS="true")
+        result = subprocess.run(
+            [sys.executable, CHECK, "--source", self.dir, self.report_path],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.count("::warning title=EGO-L-001"), 1)
 
     def test_zip_source_is_supported(self):
         archive = os.path.join(self.dir, "extension.zip")

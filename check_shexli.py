@@ -354,6 +354,35 @@ def _collect_directives(source, findings):
     return directives, malformed
 
 
+def _unique_occurrences(finding, acknowledged=None):
+    """Collapse evidence entries that share a location.
+
+    shexli can report several evidence entries for the same file and line (for
+    example a whole statement and a nested call), which would otherwise become
+    identical warnings or annotations. Keep one occurrence per location,
+    preferring the entry with the longest snippet. Entries without a path are
+    kept as they are.
+
+    Yield ``(evidence, rationale)`` pairs.
+    """
+    acknowledged = acknowledged or {}
+    unique = {}
+    for index, ev in enumerate(finding.get("evidence", [])):
+        path = ev.get("path")
+        key = (path, ev.get("line")) if path else ("", index)
+        rationale = acknowledged.get(index)
+        if key not in unique:
+            unique[key] = [ev, rationale]
+            continue
+        entry = unique[key]
+        if len(ev.get("snippet") or "") > len(entry[0].get("snippet") or ""):
+            entry[0] = ev
+        if rationale and not entry[1]:
+            entry[1] = rationale
+    for ev, rationale in unique.values():
+        yield ev, rationale
+
+
 def _print_finding(finding, key, indent="  - ", acknowledged=None):
     """Print a finding, one group per occurrence when on GitHub Actions."""
     acknowledged = acknowledged or {}
@@ -361,20 +390,18 @@ def _print_finding(finding, key, indent="  - ", acknowledged=None):
     severity = finding.get("severity", "warning")
     message = _oneline(finding.get("message", ""))
     in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
-    evidence = finding.get("evidence", []) or [{}]
+    occurrences = list(_unique_occurrences(finding, acknowledged)) or [({}, None)]
 
     if not in_actions:
         print(f"{indent}{rule_id} [{severity}]: {message}")
-        for index, ev in enumerate(evidence):
-            rationale = acknowledged.get(index)
+        for ev, rationale in occurrences:
             note = f"  [acknowledged: {rationale}]" if rationale else ""
             print(f"      {_evidence_line(ev)}{note}")
         return
 
     # Each occurrence gets its own collapsible group with its details. The
     # group already keeps the log tidy, so the snippet is shown as it is.
-    for index, ev in enumerate(evidence):
-        rationale = acknowledged.get(index)
+    for ev, rationale in occurrences:
         label = f"{rule_id} [{severity}]"
         if rationale:
             label += " (acknowledged inline)"
@@ -394,16 +421,11 @@ def _annotate(finding, acknowledged=None):
     severity = finding.get("severity", "warning")
     message = finding.get("message", "").replace("\n", " ")
 
-    evidence = finding.get("evidence", [])
-    if not evidence:
-        evidence = [{}]
-
     emitted = False
-    for index, ev in enumerate(evidence):
+    for ev, rationale in _unique_occurrences(finding, acknowledged):
         path = ev.get("path")
         if not path:
             continue
-        rationale = acknowledged.get(index)
         if rationale:
             # Acknowledged occurrences are still shown, but only as warnings
             # and never counted as a failure.
