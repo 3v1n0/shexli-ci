@@ -64,12 +64,57 @@ def _finding_key(finding):
     return rule_id, paths, snippets
 
 
+def _oneline(text):
+    return " ".join(text.split())
+
+
 def _describe(key):
     rule_id, paths, snippets = key
     detail = ", ".join(paths) or "<no path>"
-    if snippets and any(snippets):
-        detail += " :: " + ", ".join(s for s in snippets if s)
+    useful = [s for s in snippets if s]
+    if useful:
+        detail += " :: " + ", ".join(_oneline(s) for s in useful)
     return f"{rule_id} ({detail})"
+
+
+def _print_finding(finding, key, indent="  - "):
+    """Print a finding, one group per occurrence when on GitHub Actions."""
+    rule_id = finding.get("rule_id", key[0])
+    severity = finding.get("severity", "warning")
+    message = _oneline(finding.get("message", ""))
+    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    evidence = finding.get("evidence", []) or [{}]
+
+    if not in_actions:
+        print(f"{indent}{rule_id} [{severity}]: {message}")
+        for ev in evidence:
+            print(f"      {_evidence_line(ev)}")
+        return
+
+    # Each occurrence gets its own collapsible group with its details. The
+    # group already keeps the log tidy, so the snippet is shown as it is.
+    for ev in evidence:
+        print(f"::group::{rule_id} [{severity}]: {message}")
+        print(f"    {_evidence_location(ev)}")
+        snippet = ev.get("snippet", "").rstrip()
+        if snippet:
+            print("\n".join(f"    {line}" for line in snippet.splitlines()))
+        print("::endgroup::")
+
+
+def _evidence_location(ev):
+    path = ev.get("path")
+    line = ev.get("line")
+    location = path.rsplit(":", 1)[-1] if path else "-"
+    if line:
+        location += f":{line}"
+    return location
+
+
+def _evidence_line(ev):
+    snippet = _oneline(ev.get("snippet", ""))
+    location = _evidence_location(ev)
+    return location + (f"  {snippet}" if snippet else "")
 
 
 def _index_findings(report):
@@ -91,12 +136,15 @@ def load_baseline(baseline):
 
 
 def _annotate(finding):
-    """Emit a GitHub workflow annotation for each evidence line."""
+    """Emit a GitHub workflow annotation for each occurrence of a finding."""
     rule_id = finding.get("rule_id", "shexli")
     severity = finding.get("severity", "warning")
     level = "error" if severity == "error" else "warning"
     message = finding.get("message", "").replace("\n", " ")
-    evidence = finding.get("evidence", []) or [{}]
+
+    evidence = [ev for ev in finding.get("evidence", []) if ev.get("path")]
+    if not evidence:
+        evidence = [{}]
     for ev in evidence:
         path = ev.get("path")
         line = ev.get("line")
@@ -108,7 +156,8 @@ def _annotate(finding):
         print(f"::{level} {','.join(props)}::{message}")
 
 
-def _write_summary(report, new_keys, resolved_keys, indexed, has_baseline=True):
+def _write_summary(report, new_keys, resolved_keys, accepted_keys, indexed,
+                   has_baseline=True):
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
@@ -139,6 +188,14 @@ def _write_summary(report, new_keys, resolved_keys, indexed, has_baseline=True):
     if new_keys:
         lines.append("### New findings" if has_baseline else "### Findings")
         lines.extend(finding_rows(new_keys))
+        lines.append("")
+    if accepted_keys:
+        lines.append(f"<details><summary>Accepted findings "
+                     f"({len(accepted_keys)})</summary>")
+        lines.append("")
+        lines.extend(finding_rows(accepted_keys))
+        lines.append("")
+        lines.append("</details>")
         lines.append("")
     if resolved_keys:
         lines.append("### Resolved (baseline can be pruned)")
@@ -178,12 +235,13 @@ def main():
     if not args.baseline or not os.path.exists(args.baseline):
         print("No baseline provided, reporting all findings:")
         for key in sorted(current):
-            print(f"  - {_describe(key)}")
+            _print_finding(indexed[key], key)
             if annotate:
                 _annotate(indexed[key])
         print(f"\n{len(current)} finding(s), "
               f"{summary.get('severity_counts', {})}")
-        _write_summary(report, current, set(), indexed, has_baseline=False)
+        _write_summary(report, current, set(), set(), indexed,
+                       has_baseline=False)
         return 0 if args.allow_new else (1 if current else 0)
 
     with open(args.baseline) as f:
@@ -191,21 +249,27 @@ def main():
 
     new = current - baseline
     resolved = baseline - current
+    accepted = current & baseline
 
     for key in sorted(resolved):
         print(f"resolved (baseline can be pruned): {_describe(key)}")
 
     if new:
-        print("\nNew findings not present in the baseline:")
+        print(f"\nNew findings not present in the baseline ({len(new)}):")
         for key in sorted(new):
-            print(f"  - {_describe(key)}")
+            _print_finding(indexed[key], key)
             if annotate:
                 _annotate(indexed[key])
 
-    print(f"\n{len(current)} finding(s): "
-          f"{len(new)} new, {len(resolved)} resolved")
+    if accepted:
+        print(f"\nAccepted (known) findings ({len(accepted)}):")
+        for key in sorted(accepted):
+            _print_finding(indexed[key], key)
 
-    _write_summary(report, new, resolved, indexed)
+    print(f"\n{len(current)} finding(s): "
+          f"{len(new)} new, {len(resolved)} resolved, {len(accepted)} accepted")
+
+    _write_summary(report, new, resolved, accepted, indexed)
 
     if new and not args.allow_new:
         print("\nERROR: shexli reported new findings.")

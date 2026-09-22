@@ -154,12 +154,15 @@ When running on GitHub Actions the action also:
 
 - **Annotates the new findings** on their source lines (as errors/warnings in
   the *Files changed* view of the pull request), pointing at the offending file
-  and line.
-- Writes a **job summary** with the new and resolved findings, shown on the
-  workflow run page.
+  and line, with one annotation per occurrence.
+- Writes a **job summary** with the new findings, the accepted ones (collapsed)
+  and the resolved ones, shown on the workflow run page.
 
-Both are only produced for findings that are not in the baseline; accepted
-findings stay quiet. This does not happen when running `run.sh` locally.
+The console output is verbose: a line for each finding and one for each of its
+occurrences, with the snippet collapsed on a single line. On GitHub Actions
+each occurrence is emitted as its own collapsible group (with the snippet shown
+as-is), so the log stays tidy. Annotations are only produced for findings that
+are not in the baseline. This does not happen when running `run.sh` locally.
 
 ## License
 
