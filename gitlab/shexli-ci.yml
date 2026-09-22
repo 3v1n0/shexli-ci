@@ -34,6 +34,10 @@
 #   SHEXLI_REPORT         Where to write the JSON report.
 #   SHEXLI_SUMMARY        Where to write the markdown summary.
 #   SHEXLI_CODEQUALITY    Where to write the Code Quality report.
+#
+# GitLab expands `$...` references inside variable values, and unknown
+# references become empty. In SHEXLI_BUILD use `$$` for a literal shell
+# variable, e.g. `export PATH="$$HOME/.local/bin:$$PATH"`.
 
 .shexli:
   image: python:${SHEXLI_PYTHON_VERSION}

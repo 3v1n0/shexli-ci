@@ -242,6 +242,13 @@ See [`gitlab/shexli-ci.yml`](gitlab/shexli-ci.yml) for the variables
 `SHEXLI_CODEQUALITY`). The extension package must already be built: set
 `SHEXLI_BUILD`, or consume an artifact from an earlier job.
 
+> GitLab expands `$…` references inside `variables:` values by default, and
+> unknown references expand to an empty string. In a `SHEXLI_BUILD` command use
+> `$$` for a literal shell variable, for example
+> `export PATH="$$HOME/.local/bin:$$PATH"`, or set `expand: false` for the
+> variable. The CI/CD component below substitutes its inputs literally and does
+> not need escaping.
+
 ### CI/CD component
 
 Once the project is mirrored to a GitLab instance, the component
