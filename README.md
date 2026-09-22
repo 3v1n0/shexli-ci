@@ -1,5 +1,7 @@
 # shexli-ci
 
+[![Tests](https://github.com/3v1n0/shexli-ci/actions/workflows/tests.yml/badge.svg)](https://github.com/3v1n0/shexli-ci/actions/workflows/tests.yml)
+
 A reusable GitHub Action that runs [shexli](https://gitlab.gnome.org/3v1n0/extensions-web/-/tree/51-improvements/shexli),
 a static analyzer for GNOME Shell extensions, against an extension package or
 source tree, and fails when *new* findings appear compared to a baseline of
